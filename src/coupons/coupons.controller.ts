@@ -11,8 +11,55 @@ export class CouponsController {
   @Get(':couponId')
   @ApiOperation({ summary: '쿠폰 조회', description: '쿠폰 ID 또는 토큰으로 쿠폰 정보를 조회합니다.' })
   @ApiParam({ name: 'couponId', description: '쿠폰 UUID 또는 토큰' })
-  @ApiResponse({ status: 200, description: '쿠폰 정보 반환 (status: ASSIGNED | USED | EXPIRED)' })
-  @ApiResponse({ status: 404, description: '쿠폰 없음' })
+  @ApiResponse({
+    status: 200,
+    description: '쿠폰 정보 반환',
+    schema: {
+      oneOf: [
+        {
+          title: '사용 가능',
+          example: {
+            coupon_id: 'uuid-here',
+            status: 'ASSIGNED',
+            title: '베라 싱글레귤러',
+            coupon_image_url: 'https://...',
+            event_name: '이화여대 대동제',
+            valid_from: '2026-05-15',
+            valid_until: '2026-05-17',
+            booth_name: '베라 부스',
+            menu_name: '싱글레귤러',
+            operator_signature_required: true,
+            contact_phone: '010-0000-0000',
+          },
+        },
+        {
+          title: '사용 완료',
+          example: {
+            coupon_id: 'uuid-here',
+            status: 'USED',
+            title: '베라 싱글레귤러',
+            coupon_image_url: 'https://...',
+            used_at: '2026-05-15T12:00:00.000Z',
+            signature_image_url: 'https://...',
+            message: '이미 사용 완료된 쿠폰입니다.',
+            contact_phone: '010-0000-0000',
+          },
+        },
+        {
+          title: '만료',
+          example: {
+            coupon_id: 'uuid-here',
+            status: 'EXPIRED',
+            title: '베라 싱글레귤러',
+            coupon_image_url: 'https://...',
+            message: '만료된 쿠폰입니다.',
+            contact_phone: '010-0000-0000',
+          },
+        },
+      ],
+    },
+  })
+  @ApiResponse({ status: 404, description: '쿠폰 없음', schema: { example: { error: 'COUPON_NOT_FOUND', message: '쿠폰을 찾을 수 없습니다.' } } })
   getCoupon(@Param('couponId') couponId: string) {
     return this.couponsService.getCoupon(couponId);
   }
@@ -21,11 +68,23 @@ export class CouponsController {
   @HttpCode(200)
   @ApiOperation({ summary: '쿠폰 사용 처리', description: '운영자 서명 이미지를 첨부하여 쿠폰을 사용 처리합니다.' })
   @ApiParam({ name: 'couponId', description: '쿠폰 UUID 또는 토큰' })
-  @ApiResponse({ status: 200, description: '쿠폰 사용 완료' })
-  @ApiResponse({ status: 400, description: '서명 이미지 없음 또는 형식 오류' })
-  @ApiResponse({ status: 404, description: '쿠폰 없음' })
-  @ApiResponse({ status: 409, description: '이미 사용된 쿠폰' })
-  @ApiResponse({ status: 410, description: '만료된 쿠폰' })
+  @ApiResponse({
+    status: 200,
+    description: '쿠폰 사용 완료',
+    schema: {
+      example: {
+        coupon_id: 'uuid-here',
+        status: 'USED',
+        used_at: '2026-05-15T12:00:00.000Z',
+        signature_image_url: 'https://...',
+        message: '쿠폰 사용이 완료되었습니다.',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: '서명 이미지 없음 또는 형식 오류', schema: { example: { error: 'SIGNATURE_REQUIRED', message: '운영자 서명이 필요합니다.' } } })
+  @ApiResponse({ status: 404, description: '쿠폰 없음', schema: { example: { error: 'COUPON_NOT_FOUND', message: '쿠폰을 찾을 수 없습니다.' } } })
+  @ApiResponse({ status: 409, description: '이미 사용된 쿠폰', schema: { example: { error: 'COUPON_ALREADY_USED', message: '이미 사용된 쿠폰입니다.' } } })
+  @ApiResponse({ status: 410, description: '만료된 쿠폰', schema: { example: { error: 'COUPON_EXPIRED', message: '만료된 쿠폰입니다.' } } })
   redeemCoupon(@Param('couponId') couponId: string, @Body() body: RedeemCouponDto) {
     return this.couponsService.redeemCoupon(couponId, body);
   }
