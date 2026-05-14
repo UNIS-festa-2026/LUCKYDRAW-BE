@@ -60,7 +60,7 @@ export class LuckyDrawService {
       throw new ApiError('LUCKY_DRAW_CLOSED', '현재 응모 가능 시간이 아닙니다.', HttpStatus.FORBIDDEN);
     }
 
-    const entry = await this.database.transaction(async (client) => {
+    const txResult = await this.database.transaction(async (client) => {
       if (dto.session_id) {
         await this.assertNoRecentDuplicate(client, dto.session_id);
       }
@@ -116,19 +116,54 @@ export class LuckyDrawService {
       }
 
       await this.enqueueEntrySheetJobs(client, entry, prize, assignedCouponId);
-      return entry;
+      return { entry, prize, assignedCouponId };
     });
+
+    const { entry, prize, assignedCouponId } = txResult;
 
     void this.sheets.processPendingJobs().catch(() => undefined);
 
-    return {
+    if (entry.result === 'LOSE') {
+      return {
+        entry_id: entry.id,
+        result: 'LOSE' as const,
+        title: '아쉽지만 다음 기회에..',
+        message: '매일 9시~20시 동안 도전할 수 있어요!',
+        retry_available: true,
+        share_url: '/lucky-draw',
+      };
+    }
+
+    const response: Record<string, unknown> = {
       entry_id: entry.id,
-      status: entry.status,
-      amount: entry.amount,
-      result: entry.result,
-      created_at: entry.created_at.toISOString(),
-      next_action: 'SHOW_RESULT_LOADING',
+      result: 'WIN' as const,
+      title: '당첨!!',
+      prize: {
+        prize_id: prize?.id ?? null,
+        type: prize?.type ?? null,
+        name: prize?.name ?? null,
+        image_url: prize?.image_url ?? null,
+        delivery_type: prize?.type === 'BOOTH_COUPON' ? 'BOOTH_COUPON' : 'MANUAL_SEND',
+      },
+      winner_info_required: true,
+      next_action: 'INPUT_WINNER_INFO',
     };
+
+    if (prize?.type === 'BOOTH_COUPON' && assignedCouponId) {
+      const coupon = await this.database.query<{ id: string; token: string }>(
+        'select id, token from coupons where id = $1 limit 1',
+        [assignedCouponId],
+      );
+      if (coupon.rows[0]) {
+        response.coupon = {
+          coupon_id: coupon.rows[0].id,
+          token: coupon.rows[0].token,
+          url: this.buildCouponUrl(coupon.rows[0].token),
+        };
+      }
+    }
+
+    return response;
   }
 
   async getHomeStatus() {
@@ -164,73 +199,6 @@ export class LuckyDrawService {
       cta_text: '응모하기',
       server_time: this.formatKstTimestamp(new Date()),
     };
-  }
-
-  async getResult(entryId: string) {
-    this.assertEntryId(entryId);
-    const result = await this.database.query<EntryRow & PrizeRow & { prize_name: string | null; prize_type: string | null; prize_image_url: string | null }>(
-      `
-        select
-          e.*,
-          p.name as prize_name,
-          p.type as prize_type,
-          p.image_url as prize_image_url
-        from lucky_draw_entries e
-        left join prizes p on p.id = e.prize_id
-        where e.id = $1
-      `,
-      [entryId],
-    );
-    const entry = result.rows[0];
-    if (!entry) {
-      throw new ApiError('ENTRY_NOT_FOUND', '응모 내역을 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
-    }
-
-    if (entry.status !== 'RESULT_CONFIRMED') {
-      throw new ApiError('RESULT_NOT_CONFIRMED', '아직 결과가 확정되지 않았습니다.', HttpStatus.CONFLICT);
-    }
-
-    if (entry.result === 'LOSE') {
-      return {
-        entry_id: entry.id,
-        result: 'LOSE',
-        title: '아쉽지만 다음 기회에..',
-        message: '매일 9시~20시 동안 도전할 수 있어요!',
-        retry_available: true,
-        share_url: '/lucky-draw',
-      };
-    }
-
-    const response: Record<string, unknown> = {
-      entry_id: entry.id,
-      result: 'WIN',
-      title: '당첨!!',
-      prize: {
-        prize_id: entry.prize_id,
-        type: entry.prize_type,
-        name: entry.prize_name,
-        image_url: entry.prize_image_url,
-        delivery_type: entry.prize_type === 'BOOTH_COUPON' ? 'BOOTH_COUPON' : 'MANUAL_SEND',
-      },
-      winner_info_required: true,
-      next_action: 'INPUT_WINNER_INFO',
-    };
-
-    if (entry.prize_type === 'BOOTH_COUPON') {
-      const coupon = await this.database.query<{ id: string; token: string }>(
-        'select id, token from coupons where assigned_entry_id = $1 limit 1',
-        [entry.id],
-      );
-      if (coupon.rows[0]) {
-        response.coupon = {
-          coupon_id: coupon.rows[0].id,
-          token: coupon.rows[0].token,
-          url: this.buildCouponUrl(coupon.rows[0].token),
-        };
-      }
-    }
-
-    return response;
   }
 
   async createWinnerInfo(entryId: string, dto: CreateWinnerInfoDto) {
