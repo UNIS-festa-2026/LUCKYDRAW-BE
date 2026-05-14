@@ -88,6 +88,26 @@ Swagger 확인:
 GET /api-docs
 ```
 
+## 서버 배포 기준
+
+이 백엔드는 일반 NestJS 서버로 배포한다.
+
+권장 배포 환경:
+
+- Render
+- Railway
+- Fly.io
+- Cloud Run
+
+기본 명령:
+
+```text
+Build Command: npm ci && npm run build
+Start Command: npm run start
+```
+
+Vercel serverless 배포는 사용하지 않는다. DB connection pool, transaction, Google Sheets sync job을 사용하는 구조이므로 상시 Node 서버 런타임이 더 적합하다.
+
 ## 주의
 
 - 실제 Supabase, Storage, Google Sheets API 호출은 연결값 설정 후 실행한다.
