@@ -96,8 +96,9 @@ export class LuckyDrawService {
           }
         }
       } else if (isRandomWinner) {
-        // 랜덤 당첨: 타입 필터 없이 probability_weight로 선택 (BOOTH 가중치 높으면 거의 BOOTH)
-        prize = await this.selectPrize(client);
+        // booth_quota=0인 날(22일)은 UNIS만, 그 외엔 probability_weight로 BOOTH 위주 선택
+        const randomType = drawConfig.booth_quota === 0 ? 'UNIS' : undefined;
+        prize = await this.selectPrize(client, randomType);
       }
 
       return await this.buildEntryResult(client, dto, prize);
