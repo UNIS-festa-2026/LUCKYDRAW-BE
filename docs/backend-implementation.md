@@ -108,6 +108,23 @@ Start Command: npm run start
 
 Vercel serverless 배포는 사용하지 않는다. DB connection pool, transaction, Google Sheets sync job을 사용하는 구조이므로 상시 Node 서버 런타임이 더 적합하다.
 
+## Render 배포
+
+`render.yaml`을 포함한다. Render Dashboard에서 GitHub repo를 연결하고 Blueprint 또는 Web Service로 배포한다.
+
+Free plan으로 시작할 수 있지만, Free web service는 idle 상태에서 sleep될 수 있다.
+
+필수 secret env:
+
+```text
+DATABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+PUBLIC_COUPON_BASE_URL
+GOOGLE_SHEETS_SPREADSHEET_ID
+GOOGLE_SERVICE_ACCOUNT_EMAIL
+GOOGLE_PRIVATE_KEY
+```
+
 ## 주의
 
 - 실제 Supabase, Storage, Google Sheets API 호출은 연결값 설정 후 실행한다.

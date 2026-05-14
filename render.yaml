@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: luckydraw-be
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/lucky-draw/home-status
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_POOL_MAX
+        value: "10"
+      - key: SUPABASE_URL
+        value: https://buxzebgammmyzhqseprp.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_SIGNATURE_BUCKET
+        value: coupon-signatures
+      - key: LUCKY_DRAW_DAILY_WINNER_LIMIT
+        value: "100"
+      - key: LUCKY_DRAW_RANDOM_WIN_RATE_AFTER_LIMIT
+        value: "0.2"
+      - key: LUCKY_DRAW_AMOUNT
+        value: "990"
+      - key: LUCKY_DRAW_TIMEZONE
+        value: Asia/Seoul
+      - key: LUCKY_DRAW_OPEN_TIME
+        value: "09:00"
+      - key: LUCKY_DRAW_CLOSE_TIME
+        value: "20:00"
+      - key: PUBLIC_COUPON_BASE_URL
+        sync: false
+      - key: GOOGLE_SHEETS_SPREADSHEET_ID
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
+        sync: false
+      - key: GOOGLE_PRIVATE_KEY
+        sync: false
