@@ -81,23 +81,23 @@ export class LuckyDrawService {
       const isGuaranteedWinner = slot !== null;
       const isRandomWinner = !isGuaranteedWinner && Math.random() < drawConfig.random_win_rate;
 
-      let prizeType: 'BOOTH' | 'UNIS' | null = null;
+      let prize: PrizeRow | null = null;
+
       if (isGuaranteedWinner && slot !== null) {
-        prizeType = slot <= drawConfig.booth_quota ? 'BOOTH' : 'UNIS';
-      } else if (isRandomWinner) {
-        prizeType = drawConfig.booth_quota > 0 ? 'BOOTH' : 'UNIS';
-      }
-
-      const prize = prizeType ? await this.selectPrize(client, prizeType) : null;
-
-      if (isGuaranteedWinner && !prize) {
-        // 해당 타입 상품 소진 → 반대 타입으로 fallback
-        const fallbackType: 'BOOTH' | 'UNIS' = prizeType === 'BOOTH' ? 'UNIS' : 'BOOTH';
-        const fallbackPrize = await this.selectPrize(client, fallbackType);
-        if (!fallbackPrize) {
-          throw new ApiError('PRIZE_SOLD_OUT', '남은 상품이 없습니다.', HttpStatus.CONFLICT);
+        // 보장 당첨: 슬롯 번호로 BOOTH/UNIS 결정
+        const guaranteedType: 'BOOTH' | 'UNIS' = slot <= drawConfig.booth_quota ? 'BOOTH' : 'UNIS';
+        prize = await this.selectPrize(client, guaranteedType);
+        if (!prize) {
+          // 해당 타입 소진 → 반대 타입 fallback
+          const fallbackType: 'BOOTH' | 'UNIS' = guaranteedType === 'BOOTH' ? 'UNIS' : 'BOOTH';
+          prize = await this.selectPrize(client, fallbackType);
+          if (!prize) {
+            throw new ApiError('PRIZE_SOLD_OUT', '남은 상품이 없습니다.', HttpStatus.CONFLICT);
+          }
         }
-        return await this.buildEntryResult(client, dto, fallbackPrize);
+      } else if (isRandomWinner) {
+        // 랜덤 당첨: 타입 필터 없이 probability_weight로 선택 (BOOTH 가중치 높으면 거의 BOOTH)
+        prize = await this.selectPrize(client);
       }
 
       return await this.buildEntryResult(client, dto, prize);
@@ -293,13 +293,18 @@ export class LuckyDrawService {
     return result.rows[0]?.guaranteed_count ?? null;
   }
 
-  private async selectPrize(client: PoolClient, type: 'BOOTH' | 'UNIS'): Promise<PrizeRow | null> {
+  private async selectPrize(client: PoolClient, type?: 'BOOTH' | 'UNIS'): Promise<PrizeRow | null> {
     const result = await client.query<PrizeRow>(
-      `select * from prizes
-       where is_active = true and remaining_quantity > 0 and type = $1
-       order by id
-       for update skip locked`,
-      [type],
+      type
+        ? `select * from prizes
+           where is_active = true and remaining_quantity > 0 and type = $1
+           order by id
+           for update skip locked`
+        : `select * from prizes
+           where is_active = true and remaining_quantity > 0
+           order by id
+           for update skip locked`,
+      type ? [type] : [],
     );
     if (!result.rows.length) return null;
 
