@@ -1,8 +1,9 @@
 import { Body, Controller, Get, HttpCode, Param, Post } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiExcludeController, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CouponsService } from './coupons.service';
 import { RedeemCouponDto } from './dto/redeem-coupon.dto';
 
+@ApiExcludeController()
 @ApiTags('coupons')
 @Controller('coupons')
 export class CouponsController {
