@@ -14,7 +14,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: DATABASE_POOL_MAX
-        value: "10"
+        value: "25"
       - key: SUPABASE_URL
         value: https://buxzebgammmyzhqseprp.supabase.co
       - key: SUPABASE_SERVICE_ROLE_KEY

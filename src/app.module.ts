@@ -18,7 +18,7 @@ import { SignatureStorageModule } from './storage/signature-storage.module';
     ThrottlerModule.forRoot([
       {
         ttl: 60_000,
-        limit: 120,
+        limit: 10_000, // 부하 테스트용 임시 비활성화
       },
     ]),
     DatabaseModule,

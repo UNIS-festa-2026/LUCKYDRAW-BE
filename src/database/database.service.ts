@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, PoolClient, QueryResultRow } from 'pg';
+import { ApiError } from '../common/api-error';
 import { AppConfig } from '../config/app.config';
 
 @Injectable()
@@ -21,7 +22,12 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async transaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
-    const client = await this.pool.connect();
+    let client: PoolClient;
+    try {
+      client = await this.pool.connect();
+    } catch {
+      throw new ApiError('SERVER_BUSY', '서버가 혼잡합니다. 잠시 후 다시 시도해주세요.', 503);
+    }
     try {
       await client.query('begin');
       const result = await callback(client);
