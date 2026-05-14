@@ -40,6 +40,12 @@ interface WinnerInfoRow {
   created_at: Date;
 }
 
+interface DailyDrawConfig {
+  booth_quota: number;
+  unis_quota: number;
+  random_win_rate: number;
+}
+
 @Injectable()
 export class LuckyDrawService {
   constructor(
@@ -60,53 +66,46 @@ export class LuckyDrawService {
       throw new ApiError('LUCKY_DRAW_CLOSED', '현재 응모 가능 시간이 아닙니다.', HttpStatus.FORBIDDEN);
     }
 
+    const today = this.getTodayKst(config.timezone);
+
     const txResult = await this.database.transaction(async (client) => {
       if (dto.session_id) {
         await this.assertNoRecentDuplicate(client, dto.session_id);
       }
 
-      const dayRange = this.getServiceDayRange(config.timezone);
-      await this.lockDailyDrawCounter(client, dayRange.key);
-      const usedWinnerSlots = await this.countTodayWinners(client, dayRange.start, dayRange.end);
-      const isGuaranteedWinner = usedWinnerSlots < config.dailyWinnerLimit;
-      const isRandomWinner = !isGuaranteedWinner && Math.random() < config.randomWinRateAfterLimit;
-      const shouldWin = isGuaranteedWinner || isRandomWinner;
+      const drawConfig = await this.getDailyConfig(client, today);
+      const totalQuota = drawConfig.booth_quota + drawConfig.unis_quota;
 
-      const prize = shouldWin ? await this.selectPrize(client) : null;
-      if (shouldWin && !prize && isGuaranteedWinner) {
-        throw new ApiError('PRIZE_SOLD_OUT', '남은 상품이 없습니다.', HttpStatus.CONFLICT);
+      // advisory lock 없이 atomic하게 슬롯 확보
+      const slot = await this.claimGuaranteedSlot(client, today, totalQuota);
+      const isGuaranteedWinner = slot !== null;
+      const isRandomWinner = !isGuaranteedWinner && Math.random() < drawConfig.random_win_rate;
+
+      let prizeType: 'BOOTH' | 'UNIS' | null = null;
+      if (isGuaranteedWinner && slot !== null) {
+        prizeType = slot <= drawConfig.booth_quota ? 'BOOTH' : 'UNIS';
+      } else if (isRandomWinner) {
+        prizeType = drawConfig.booth_quota > 0 ? 'BOOTH' : 'UNIS';
       }
 
-      if (prize) {
-        await client.query('update prizes set remaining_quantity = remaining_quantity - 1 where id = $1', [prize.id]);
+      const prize = prizeType ? await this.selectPrize(client, prizeType) : null;
+
+      if (isGuaranteedWinner && !prize) {
+        // 해당 타입 상품 소진 → 반대 타입으로 fallback
+        const fallbackType: 'BOOTH' | 'UNIS' = prizeType === 'BOOTH' ? 'UNIS' : 'BOOTH';
+        const fallbackPrize = await this.selectPrize(client, fallbackType);
+        if (!fallbackPrize) {
+          throw new ApiError('PRIZE_SOLD_OUT', '남은 상품이 없습니다.', HttpStatus.CONFLICT);
+        }
+        return await this.buildEntryResult(client, dto, fallbackPrize);
       }
 
-      const entryResult = await client.query<EntryRow>(
-        `
-          insert into lucky_draw_entries
-            (session_id, payment_method, amount, depositor_name, result, prize_id)
-          values
-            ($1, $2, $3, $4, $5, $6)
-          returning *
-        `,
-        [
-          dto.session_id ?? null,
-          dto.payment_method,
-          dto.amount,
-          dto.depositor_name?.trim() || null,
-          prize ? 'WIN' : 'LOSE',
-          prize?.id ?? null,
-        ],
-      );
-      const entry = entryResult.rows[0];
-
-      await this.enqueueEntrySheetJobs(client, entry, prize);
-      return { entry, prize };
+      return await this.buildEntryResult(client, dto, prize);
     });
 
-    const { entry, prize } = txResult;
-
     void this.sheets.processPendingJobs().catch(() => undefined);
+
+    const { entry, prize } = txResult;
 
     if (entry.result === 'LOSE') {
       return {
@@ -136,30 +135,33 @@ export class LuckyDrawService {
 
   async getHomeStatus() {
     const config = this.configService.get('luckyDraw', { infer: true });
-    const dayRange = this.getServiceDayRange(config.timezone);
-    const count = await this.database.query<{ count: string }>(
-      `
-        select count(*)::text as count
-        from lucky_draw_entries
-        where result = 'WIN' and created_at >= $1 and created_at < $2
-      `,
-      [dayRange.start, dayRange.end],
+    const today = this.getTodayKst(config.timezone);
+    const drawConfig = await this.database.query<DailyDrawConfig>(
+      'select booth_quota, unis_quota, random_win_rate from daily_draw_config where date = $1',
+      [today],
     );
-    const usedWinnerSlots = Number(count.rows[0]?.count ?? '0');
-    const remainingWinnerSlots = Math.max(config.dailyWinnerLimit - usedWinnerSlots, 0);
+    const cfg = drawConfig.rows[0] ?? { booth_quota: 90, unis_quota: 10, random_win_rate: 0.2 };
+    const totalQuota = cfg.booth_quota + cfg.unis_quota;
+
+    const counter = await this.database.query<{ guaranteed_count: number }>(
+      'select guaranteed_count from daily_counters where date = $1',
+      [today],
+    );
+    const usedSlots = counter.rows[0]?.guaranteed_count ?? 0;
+    const remainingSlots = Math.max(totalQuota - usedSlots, 0);
     const isOpen = this.isWithinOperatingHours(config.timezone, config.openTime, config.closeTime);
 
     return {
-      daily_winner_limit: config.dailyWinnerLimit,
-      used_winner_slots: usedWinnerSlots,
-      remaining_winner_slots: remainingWinnerSlots,
-      guaranteed_win_available: isOpen && remainingWinnerSlots > 0,
-      random_available: isOpen && remainingWinnerSlots === 0,
-      random_win_rate_after_limit: config.randomWinRateAfterLimit,
+      daily_winner_limit: totalQuota,
+      used_winner_slots: usedSlots,
+      remaining_winner_slots: remainingSlots,
+      guaranteed_win_available: isOpen && remainingSlots > 0,
+      random_available: isOpen && remainingSlots === 0,
+      random_win_rate_after_limit: cfg.random_win_rate,
       is_open: isOpen,
       popup_text:
-        remainingWinnerSlots > 0
-          ? `100% 당첨 ${remainingWinnerSlots}명 남음!`
+        remainingSlots > 0
+          ? `100% 당첨 ${remainingSlots}명 남음!`
           : '선착순 100% 당첨 마감! 지금부터 랜덤 당첨',
       hero_title: '단돈 990원으로 상품타자!',
       hero_subtitle: '400개 이상의 상품이 준비되어 있다고..?',
@@ -266,13 +268,79 @@ export class LuckyDrawService {
     };
   }
 
+  private async getDailyConfig(client: PoolClient, today: string): Promise<DailyDrawConfig> {
+    const result = await client.query<DailyDrawConfig>(
+      'select booth_quota, unis_quota, random_win_rate from daily_draw_config where date = $1',
+      [today],
+    );
+    return result.rows[0] ?? { booth_quota: 90, unis_quota: 10, random_win_rate: 0.2 };
+  }
+
+  // advisory lock 없이 atomic하게 선착순 슬롯 번호 확보
+  // 반환값: 슬롯 번호 (1~totalQuota) 또는 null (선착순 마감)
+  private async claimGuaranteedSlot(client: PoolClient, today: string, totalQuota: number): Promise<number | null> {
+    await client.query(
+      'insert into daily_counters (date, guaranteed_count) values ($1, 0) on conflict (date) do nothing',
+      [today],
+    );
+    const result = await client.query<{ guaranteed_count: number }>(
+      `update daily_counters
+       set guaranteed_count = guaranteed_count + 1
+       where date = $1 and guaranteed_count < $2
+       returning guaranteed_count`,
+      [today, totalQuota],
+    );
+    return result.rows[0]?.guaranteed_count ?? null;
+  }
+
+  private async selectPrize(client: PoolClient, type: 'BOOTH' | 'UNIS'): Promise<PrizeRow | null> {
+    const result = await client.query<PrizeRow>(
+      `select * from prizes
+       where is_active = true and remaining_quantity > 0 and type = $1
+       order by id
+       for update skip locked`,
+      [type],
+    );
+    if (!result.rows.length) return null;
+
+    const totalWeight = result.rows.reduce((sum, p) => sum + p.probability_weight, 0);
+    let threshold = Math.random() * totalWeight;
+    for (const prize of result.rows) {
+      threshold -= prize.probability_weight;
+      if (threshold <= 0) return prize;
+    }
+    return result.rows[result.rows.length - 1];
+  }
+
+  private async buildEntryResult(client: PoolClient, dto: CreateEntryDto, prize: PrizeRow | null) {
+    if (prize) {
+      await client.query('update prizes set remaining_quantity = remaining_quantity - 1 where id = $1', [prize.id]);
+    }
+
+    const entryResult = await client.query<EntryRow>(
+      `insert into lucky_draw_entries
+         (session_id, payment_method, amount, depositor_name, result, prize_id)
+       values ($1, $2, $3, $4, $5, $6)
+       returning *`,
+      [
+        dto.session_id ?? null,
+        dto.payment_method,
+        dto.amount,
+        dto.depositor_name?.trim() || null,
+        prize ? 'WIN' : 'LOSE',
+        prize?.id ?? null,
+      ],
+    );
+    const entry = entryResult.rows[0];
+    await this.enqueueEntrySheetJobs(client, entry, prize);
+    return { entry, prize };
+  }
+
   private async assertNoRecentDuplicate(client: PoolClient, sessionId: string) {
     const duplicate = await client.query(
-      `
-        select id from lucky_draw_entries
-        where session_id = $1 and created_at > now() - interval '5 seconds'
-        limit 1
-      `,
+      `select id from lucky_draw_entries
+       where session_id = $1 and created_at > now() - interval '5 seconds'
+       limit 1`,
       [sessionId],
     );
     if (duplicate.rowCount) {
@@ -284,47 +352,6 @@ export class LuckyDrawService {
     if (!isUuid(entryId)) {
       throw new ApiError('ENTRY_NOT_FOUND', '응모 내역을 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
     }
-  }
-
-  private async lockDailyDrawCounter(client: PoolClient, dayKey: string) {
-    await client.query('select pg_advisory_xact_lock(hashtext($1))', [`lucky_draw:${dayKey}`]);
-  }
-
-  private async countTodayWinners(client: PoolClient, start: Date, end: Date): Promise<number> {
-    const result = await client.query<{ count: string }>(
-      `
-        select count(*)::text as count
-        from lucky_draw_entries
-        where result = 'WIN' and created_at >= $1 and created_at < $2
-      `,
-      [start, end],
-    );
-    return Number(result.rows[0]?.count ?? '0');
-  }
-
-  private async selectPrize(client: PoolClient): Promise<PrizeRow | null> {
-    const result = await client.query<PrizeRow>(
-      `
-        select *
-        from prizes
-        where is_active = true and remaining_quantity > 0
-        order by id
-        for update
-      `,
-    );
-    if (!result.rows.length) {
-      return null;
-    }
-
-    const totalWeight = result.rows.reduce((sum, prize) => sum + prize.probability_weight, 0);
-    let threshold = Math.random() * totalWeight;
-    for (const prize of result.rows) {
-      threshold -= prize.probability_weight;
-      if (threshold <= 0) {
-        return prize;
-      }
-    }
-    return result.rows[result.rows.length - 1];
   }
 
   private async enqueueEntrySheetJobs(client: PoolClient, entry: EntryRow, prize: PrizeRow | null) {
@@ -397,25 +424,25 @@ export class LuckyDrawService {
     return current >= this.toMinutes(openTime) && current < this.toMinutes(closeTime);
   }
 
-  private getServiceDayRange(timezone: string) {
+  private getTodayKst(timezone: string): string {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
     }).formatToParts(new Date());
-    const year = Number(parts.find((part) => part.type === 'year')?.value);
-    const month = Number(parts.find((part) => part.type === 'month')?.value);
-    const day = Number(parts.find((part) => part.type === 'day')?.value);
+    const y = parts.find((p) => p.type === 'year')?.value ?? '';
+    const m = parts.find((p) => p.type === 'month')?.value ?? '';
+    const d = parts.find((p) => p.type === 'day')?.value ?? '';
+    return `${y}-${m}-${d}`;
+  }
 
-    // The festival timezone is Asia/Seoul. KST is UTC+09:00 and has no DST.
+  private getServiceDayRange(timezone: string) {
+    const today = this.getTodayKst(timezone);
+    const [year, month, day] = today.split('-').map(Number);
     const start = new Date(Date.UTC(year, month - 1, day, -9, 0, 0));
     const end = new Date(Date.UTC(year, month - 1, day + 1, -9, 0, 0));
-    return {
-      key: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-      start,
-      end,
-    };
+    return { key: today, start, end };
   }
 
   private formatKstTimestamp(date: Date): string {
@@ -437,5 +464,4 @@ export class LuckyDrawService {
     const [hour, minute] = value.split(':').map(Number);
     return hour * 60 + minute;
   }
-
 }
