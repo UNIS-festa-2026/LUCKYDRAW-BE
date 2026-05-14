@@ -8,7 +8,17 @@ export class LuckyDrawHomeController {
   constructor(private readonly luckyDrawService: LuckyDrawService) {}
 
   @Get('home-status')
-  @ApiOperation({ summary: '홈 상태 조회', description: '오늘 남은 당첨 슬롯, 운영 여부, 화면 텍스트 등을 반환합니다.' })
+  @ApiOperation({
+    summary: '홈 상태 조회',
+    description: `홈 화면 진입 시 호출합니다. 오늘 남은 당첨 슬롯, 운영 여부, 화면에 표시할 텍스트를 반환합니다.
+
+**당첨 방식:**
+- \`guaranteed_win_available: true\` → 선착순 100% 당첨 구간 (남은 슬롯 있음)
+- \`random_available: true\` → 선착순 마감 후 랜덤 당첨 구간 (\`random_win_rate_after_limit\` 확률)
+- \`is_open: false\` → 운영 시간 외 (응모 불가)
+
+**서버 시간:** \`server_time\`은 KST 기준. 클라이언트 시계 대신 이 값을 사용하세요.`,
+  })
   @ApiResponse({
     status: 200,
     description: '홈 상태 정보 반환',

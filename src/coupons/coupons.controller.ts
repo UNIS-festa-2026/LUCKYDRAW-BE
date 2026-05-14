@@ -9,7 +9,18 @@ export class CouponsController {
   constructor(private readonly couponsService: CouponsService) {}
 
   @Get(':couponId')
-  @ApiOperation({ summary: '쿠폰 조회', description: '쿠폰 ID 또는 토큰으로 쿠폰 정보를 조회합니다.' })
+  @ApiOperation({
+    summary: '쿠폰 조회',
+    description: `쿠폰 ID(UUID) 또는 토큰으로 쿠폰 정보를 조회합니다.
+
+**쿠폰 URL 구조:** \`GET /api/coupons/{token}\`
+당첨자가 받는 URL(\`coupon.url\`)이 이 엔드포인트로 라우팅됩니다. 프론트에서 해당 경로를 쿠폰 화면으로 연결하면 됩니다.
+
+**status별 화면 처리:**
+- \`ASSIGNED\` → 쿠폰 상세 + 부스 운영자 서명 UI 표시
+- \`USED\` → 사용 완료 화면 (서명 이미지 포함)
+- \`EXPIRED\` → 만료 안내 화면`,
+  })
   @ApiParam({ name: 'couponId', description: '쿠폰 UUID 또는 토큰' })
   @ApiResponse({
     status: 200,
@@ -66,7 +77,19 @@ export class CouponsController {
 
   @Post(':couponId/redeem')
   @HttpCode(200)
-  @ApiOperation({ summary: '쿠폰 사용 처리', description: '운영자 서명 이미지를 첨부하여 쿠폰을 사용 처리합니다.' })
+  @ApiOperation({
+    summary: '쿠폰 사용 처리',
+    description: `부스 운영자가 서명 후 쿠폰을 사용 완료 처리합니다.
+
+**처리 흐름:**
+1. 당첨자가 쿠폰 화면 열기 (\`GET /api/coupons/:token\`)
+2. 부스 운영자가 화면에 서명
+3. 프론트에서 서명 이미지를 PNG Data URL로 변환 후 이 API 호출
+4. 서명 이미지는 Supabase Storage에 저장, 쿠폰 상태가 \`USED\`로 변경
+5. Google Sheets \`coupons\` 탭 및 \`coupon_redemptions\` 탭에 자동 기록
+
+**서명 이미지 형식:** \`data:image/png;base64,{base64}\` 형태의 Data URL`,
+  })
   @ApiParam({ name: 'couponId', description: '쿠폰 UUID 또는 토큰' })
   @ApiResponse({
     status: 200,

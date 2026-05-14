@@ -10,7 +10,19 @@ export class LuckyDrawController {
   constructor(private readonly luckyDrawService: LuckyDrawService) {}
 
   @Post()
-  @ApiOperation({ summary: '응모 생성', description: '계좌이체 결제 후 럭키드로우에 응모합니다.' })
+  @ApiOperation({
+    summary: '응모 생성',
+    description: `계좌이체 결제 후 럭키드로우에 응모합니다.
+
+**전체 플로우:**
+1. 프론트에서 이 API 호출 → \`entry_id\` 수령
+2. \`next_action: SHOW_RESULT_LOADING\` → 로딩 화면 표시 (결과 확정 대기)
+3. \`GET /entries/:entryId/result\` 폴링 → 결과 확정 시 결과 화면으로 이동
+
+**운영 시간:** 매일 09:00~20:00 KST
+
+**중복 방지:** \`session_id\` 전달 시 5초 내 동일 세션 중복 응모 차단`,
+  })
   @ApiResponse({
     status: 201,
     description: '응모 성공',
@@ -33,7 +45,17 @@ export class LuckyDrawController {
   }
 
   @Get(':entryId/result')
-  @ApiOperation({ summary: '응모 결과 조회', description: '응모 ID로 당첨 결과를 조회합니다.' })
+  @ApiOperation({
+    summary: '응모 결과 조회',
+    description: `응모 ID로 당첨 결과를 조회합니다. 결과가 아직 확정되지 않은 경우 409를 반환하므로 프론트에서 폴링해야 합니다.
+
+**결과 타입별 처리:**
+- \`result: LOSE\` → 낙첨 화면 표시
+- \`result: WIN\` + \`prize.type: BOOTH_COUPON\` → \`coupon.url\`로 이동 (부스 쿠폰 화면). \`coupon.url\`은 \`PUBLIC_COUPON_BASE_URL/{token}\` 형태로 자동 생성됨. Google Sheets에 자동 기록됨.
+- \`result: WIN\` + \`prize.type: DIGITAL_COUPON | ETC\` → 당첨자 정보 입력 안내 후 운영자가 수동 발송 (Google Sheets에서 확인)
+
+**당첨자 정보 입력:** WIN 시 \`next_action: INPUT_WINNER_INFO\` → \`POST /entries/:entryId/winner-info\` 호출 필요`,
+  })
   @ApiParam({ name: 'entryId', description: '응모 UUID' })
   @ApiResponse({
     status: 200,
@@ -83,7 +105,16 @@ export class LuckyDrawController {
   }
 
   @Post(':entryId/winner-info')
-  @ApiOperation({ summary: '당첨자 정보 등록', description: '당첨된 응모에 수령인 정보를 등록합니다.' })
+  @ApiOperation({
+    summary: '당첨자 정보 등록',
+    description: `당첨된 응모에 수령인 정보(이름, 전화번호, 한 줄 후기)를 등록합니다.
+
+등록 완료 시 Google Sheets \`winner_infos\` 탭에 자동 기록됩니다.
+운영자는 Sheets에서 \`DIGITAL_COUPON / ETC\` 당첨자 정보를 확인 후 수동 발송합니다.
+
+**전화번호 형식:** 숫자만 입력 (하이픈 제거 후 저장). 010으로 시작하는 11자리만 허용.
+**한 줄 후기:** 공백 제거 후 1~100자`,
+  })
   @ApiParam({ name: 'entryId', description: '응모 UUID' })
   @ApiResponse({
     status: 201,
