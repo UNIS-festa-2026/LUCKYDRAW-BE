@@ -22,15 +22,14 @@ export class LuckyDrawController {
   → result: WIN   → 당첨 화면 (prize.image_url 표시)
                     → 이름 / 전화번호 / 한 줄 후기 입력
                     → POST /api/lucky-draw/entries/:entryId/winner-info
-                    → prize.type === 'BOOTH_COUPON'  → coupon.url 로 이동 (부스 쿠폰 화면)
-                    → prize.type === 'DIGITAL_COUPON' | 'ETC'  → 전달 예정 안내 화면 (운영자 수동 발송)
+                    → prize.type === 'BOOTH'  → 전달 예정 안내 (운영자가 부스 쿠폰 직접 배포)
+                    → prize.type === 'UNIS'   → 전달 예정 안내 (운영자가 자체 쿠폰 수동 발송)
 \`\`\`
 
 **주의사항**
 - 결과는 이 API 한 번으로 즉시 반환됨 — 폴링 불필요
 - 당첨 화면 쿠폰 이미지는 \`prize.image_url\` 사용
-- \`BOOTH_COUPON\` 당첨 시 \`coupon.url\`이 응답에 포함됨 — 당첨자 정보 입력 완료 후 해당 URL로 이동
-- \`DIGITAL_COUPON / ETC\` 당첨 시 운영자가 Google Sheets에서 당첨자 정보 확인 후 수동 발송
+- \`prize.type\`: \`BOOTH\` (부스 쿠폰) | \`UNIS\` (자체 쿠폰) — 두 타입 모두 당첨자 정보 입력 후 운영자 수동 배포
 
 **운영 시간:** 매일 09:00 ~ 20:00 KST
 
@@ -60,32 +59,25 @@ export class LuckyDrawController {
             title: '당첨!!',
             prize: {
               prize_id: 'uuid-here',
-              type: 'BOOTH_COUPON',
-              name: '베라 싱글레귤러',
+              type: 'BOOTH',
+              name: '이화검도부 1000원 할인권',
               image_url: 'https://...',
-              delivery_type: 'BOOTH_COUPON',
             },
             winner_info_required: true,
             next_action: 'INPUT_WINNER_INFO',
-            coupon: {
-              coupon_id: 'uuid-here',
-              token: 'abc123',
-              url: 'https://example.com/coupons/abc123',
-            },
           },
         },
         {
-          title: '당첨 (디지털/기타)',
+          title: '당첨 (자체 쿠폰)',
           example: {
             entry_id: 'uuid-here',
             result: 'WIN',
             title: '당첨!!',
             prize: {
               prize_id: 'uuid-here',
-              type: 'DIGITAL_COUPON',
-              name: '욜영 1만원권',
+              type: 'UNIS',
+              name: '스타벅스 5000원권',
               image_url: 'https://...',
-              delivery_type: 'MANUAL_SEND',
             },
             winner_info_required: true,
             next_action: 'INPUT_WINNER_INFO',
@@ -106,9 +98,9 @@ export class LuckyDrawController {
     summary: '당첨자 정보 등록',
     description: `당첨 화면에서 이름 / 전화번호 / 한 줄 후기 입력 완료 시 호출합니다.
 
-**등록 후 처리 (프론트 분기)**
-- \`prize.type === 'BOOTH_COUPON'\` → 응모 결과 응답에 포함된 \`coupon.url\`로 이동
-- \`prize.type === 'DIGITAL_COUPON' | 'ETC'\` → 전달 예정 안내 화면 표시 (운영자가 Google Sheets 확인 후 수동 발송)
+**등록 후 처리**
+- 두 타입 모두 전달 예정 안내 화면 표시
+- 운영자가 Google Sheets \`winner_infos\` 탭에서 확인 후 배포 (\`BOOTH\`: 부스 쿠폰 직접 배포 / \`UNIS\`: 자체 쿠폰 수동 발송)
 
 **유효성 검사**
 - 전화번호: 숫자만 허용, 010으로 시작하는 11자리

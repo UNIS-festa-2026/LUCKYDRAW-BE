@@ -12,7 +12,7 @@ import { CreateWinnerInfoDto } from './dto/create-winner-info.dto';
 interface PrizeRow {
   id: string;
   name: string;
-  type: 'DIGITAL_COUPON' | 'BOOTH_COUPON' | 'ETC';
+  type: 'BOOTH' | 'UNIS';
   image_url: string | null;
   remaining_quantity: number;
   probability_weight: number;
@@ -72,20 +72,9 @@ export class LuckyDrawService {
       const isRandomWinner = !isGuaranteedWinner && Math.random() < config.randomWinRateAfterLimit;
       const shouldWin = isGuaranteedWinner || isRandomWinner;
 
-      let prize = shouldWin ? await this.selectPrize(client) : null;
+      const prize = shouldWin ? await this.selectPrize(client) : null;
       if (shouldWin && !prize && isGuaranteedWinner) {
         throw new ApiError('PRIZE_SOLD_OUT', '남은 상품이 없습니다.', HttpStatus.CONFLICT);
-      }
-      let assignedCouponId: string | null = null;
-
-      if (prize?.type === 'BOOTH_COUPON') {
-        assignedCouponId = await this.lockAvailableCoupon(client, prize.id);
-        if (!assignedCouponId && isGuaranteedWinner) {
-          throw new ApiError('PRIZE_SOLD_OUT', '남은 상품이 없습니다.', HttpStatus.CONFLICT);
-        }
-        if (!assignedCouponId) {
-          prize = null;
-        }
       }
 
       if (prize) {
@@ -111,15 +100,11 @@ export class LuckyDrawService {
       );
       const entry = entryResult.rows[0];
 
-      if (prize?.type === 'BOOTH_COUPON') {
-        await this.assignLockedCoupon(client, assignedCouponId, entry.id);
-      }
-
-      await this.enqueueEntrySheetJobs(client, entry, prize, assignedCouponId);
-      return { entry, prize, assignedCouponId };
+      await this.enqueueEntrySheetJobs(client, entry, prize);
+      return { entry, prize };
     });
 
-    const { entry, prize, assignedCouponId } = txResult;
+    const { entry, prize } = txResult;
 
     void this.sheets.processPendingJobs().catch(() => undefined);
 
@@ -134,7 +119,7 @@ export class LuckyDrawService {
       };
     }
 
-    const response: Record<string, unknown> = {
+    return {
       entry_id: entry.id,
       result: 'WIN' as const,
       title: '당첨!!',
@@ -143,27 +128,10 @@ export class LuckyDrawService {
         type: prize?.type ?? null,
         name: prize?.name ?? null,
         image_url: prize?.image_url ?? null,
-        delivery_type: prize?.type === 'BOOTH_COUPON' ? 'BOOTH_COUPON' : 'MANUAL_SEND',
       },
       winner_info_required: true,
       next_action: 'INPUT_WINNER_INFO',
     };
-
-    if (prize?.type === 'BOOTH_COUPON' && assignedCouponId) {
-      const coupon = await this.database.query<{ id: string; token: string }>(
-        'select id, token from coupons where id = $1 limit 1',
-        [assignedCouponId],
-      );
-      if (coupon.rows[0]) {
-        response.coupon = {
-          coupon_id: coupon.rows[0].id,
-          token: coupon.rows[0].token,
-          url: this.buildCouponUrl(coupon.rows[0].token),
-        };
-      }
-    }
-
-    return response;
   }
 
   async getHomeStatus() {
@@ -339,17 +307,7 @@ export class LuckyDrawService {
       `
         select *
         from prizes
-        where
-          is_active = true
-          and remaining_quantity > 0
-          and (
-            type <> 'BOOTH_COUPON'
-            or exists (
-              select 1
-              from coupons
-              where coupons.prize_id = prizes.id and coupons.status = 'AVAILABLE'
-            )
-          )
+        where is_active = true and remaining_quantity > 0
         order by id
         for update
       `,
@@ -369,42 +327,7 @@ export class LuckyDrawService {
     return result.rows[result.rows.length - 1];
   }
 
-  private async lockAvailableCoupon(client: PoolClient, prizeId: string): Promise<string | null> {
-    const coupon = await client.query<{ id: string }>(
-      `
-        select id
-        from coupons
-        where prize_id = $1 and status = 'AVAILABLE'
-        order by created_at
-        for update skip locked
-        limit 1
-      `,
-      [prizeId],
-    );
-
-    return coupon.rows[0]?.id ?? null;
-  }
-
-  private async assignLockedCoupon(client: PoolClient, couponId: string | null, entryId: string) {
-    if (!couponId) {
-      return;
-    }
-    await client.query(
-      `
-        update coupons
-        set status = 'ASSIGNED', assigned_entry_id = $1, assigned_at = now()
-        where id = $2
-      `,
-      [entryId, couponId],
-    );
-  }
-
-  private async enqueueEntrySheetJobs(
-    client: PoolClient,
-    entry: EntryRow,
-    prize: PrizeRow | null,
-    assignedCouponId: string | null,
-  ) {
+  private async enqueueEntrySheetJobs(client: PoolClient, entry: EntryRow, prize: PrizeRow | null) {
     await this.sheets.enqueueJob(client, {
       targetTab: 'entries',
       operation: 'APPEND',
@@ -427,15 +350,6 @@ export class LuckyDrawService {
         operation: 'UPDATE',
         dedupeKey: `prizes:${prize.id}:${entry.id}`,
         payload: { prize_id: prize.id },
-      });
-    }
-
-    if (assignedCouponId) {
-      await this.sheets.enqueueJob(client, {
-        targetTab: 'coupons',
-        operation: 'UPDATE',
-        dedupeKey: `coupons-assigned:${assignedCouponId}`,
-        payload: { coupon_id: assignedCouponId },
       });
     }
   }
@@ -524,8 +438,4 @@ export class LuckyDrawService {
     return hour * 60 + minute;
   }
 
-  private buildCouponUrl(token: string): string {
-    const baseUrl = this.configService.get('publicCouponBaseUrl', { infer: true });
-    return baseUrl ? `${baseUrl.replace(/\/$/, '')}/${token}` : `/coupons/${token}`;
-  }
 }
