@@ -4,6 +4,12 @@ import { json } from 'express';
 import helmet from 'helmet';
 
 export function configureApp(app: INestApplication) {
+  app.enableCors({
+    origin: ['http://localhost:5173', 'https://luckydraw-fe.vercel.app'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+  });
   app.use(helmet());
   app.use(json({ limit: '2mb' }));
   app.setGlobalPrefix('api');
