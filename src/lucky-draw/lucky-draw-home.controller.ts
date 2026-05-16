@@ -7,42 +7,29 @@ import { LuckyDrawService } from './lucky-draw.service';
 export class LuckyDrawHomeController {
   constructor(private readonly luckyDrawService: LuckyDrawService) {}
 
-  @Get('home-status')
+  @Get('home')
   @ApiOperation({
-    summary: '홈 상태 조회',
-    description: `홈 화면 진입 시 호출합니다.
+    summary: '홈 화면 데이터 조회',
+    description: `홈 화면 진입 시 한 번 호출합니다. 상태 정보 + 후기 목록을 함께 반환합니다.
 
-**당첨 방식**
-- \`guaranteed_win_available: true\` → 선착순 100% 당첨 구간
-- \`random_available: true\` → 선착순 마감, 랜덤 당첨 구간 (\`random_win_rate_after_limit\` 확률)
-- \`is_open: false\` → 운영 시간 외, 응모 버튼 비활성화
-
-**화면 텍스트:** \`popup_text\`, \`hero_title\`, \`hero_subtitle\`, \`speech_bubble_text\`, \`cta_text\` 값을 그대로 사용
-
-**서버 시간:** \`server_time\` (KST) — 클라이언트 시계 대신 이 값 사용`,
+- \`is_open\`: 운영 시간 여부 (09:00~20:00 KST), false면 응모 버튼 비활성화
+- \`remaining_winner_slots\`: 선착순 당첨 잔여 수, 0이면 랜덤 당첨 구간`,
   })
   @ApiResponse({
     status: 200,
-    description: '홈 상태 정보 반환',
+    description: '홈 화면 데이터 반환',
     schema: {
       example: {
-        daily_winner_limit: 100,
-        used_winner_slots: 32,
-        remaining_winner_slots: 68,
-        guaranteed_win_available: true,
-        random_available: false,
-        random_win_rate_after_limit: 0.2,
         is_open: true,
-        popup_text: '100% 당첨 68명 남음!',
-        hero_title: '단돈 990원으로 상품타자!',
-        hero_subtitle: '400개 이상의 상품이 준비되어 있다고..?',
-        speech_bubble_text: '욜영, 치킨, 베라, 떡볶이, 커피.. 대동제 부스 쿠폰까지 준다구?!',
-        cta_text: '응모하기',
-        server_time: '2026-05-15T10:30:00+09:00',
+        remaining_winner_slots: 68,
+        reviews: [
+          { masked_name: '김*민', review: '와 저 진짜 당첨됐어요!!!' },
+          { masked_name: '이*서', review: '우와 맛있게 먹을게요~' },
+        ],
       },
     },
   })
-  getHomeStatus() {
-    return this.luckyDrawService.getHomeStatus();
+  getHome() {
+    return this.luckyDrawService.getHome();
   }
 }

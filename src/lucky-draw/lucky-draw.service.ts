@@ -22,11 +22,8 @@ interface EntryRow {
   id: string;
   session_id: string | null;
   amount: number;
-  depositor_name: string | null;
   result: 'WIN' | 'LOSE';
   prize_id: string | null;
-  status: string;
-  payment_verified: boolean;
   created_at: Date;
 }
 
@@ -56,12 +53,6 @@ export class LuckyDrawService {
 
   async createEntry(dto: CreateEntryDto) {
     const config = this.configService.get('luckyDraw', { infer: true });
-    if (dto.payment_method !== 'BANK_TRANSFER') {
-      throw new ApiError('INVALID_PAYMENT_METHOD', '결제 방식이 올바르지 않습니다.', HttpStatus.BAD_REQUEST);
-    }
-    if (dto.amount !== config.amount) {
-      throw new ApiError('INVALID_AMOUNT', '응모 금액이 올바르지 않습니다.', HttpStatus.BAD_REQUEST);
-    }
     if (!this.isWithinOperatingHours(config.timezone, config.openTime, config.closeTime)) {
       throw new ApiError('LUCKY_DRAW_CLOSED', '현재 응모 가능 시간이 아닙니다.', HttpStatus.FORBIDDEN);
     }
@@ -109,67 +100,59 @@ export class LuckyDrawService {
     const { entry, prize } = txResult;
 
     if (entry.result === 'LOSE') {
-      return {
-        entry_id: entry.id,
-        result: 'LOSE' as const,
-        title: '아쉽지만 다음 기회에..',
-        message: '매일 9시~20시 동안 도전할 수 있어요!',
-        retry_available: true,
-        share_url: '/lucky-draw',
-      };
+      return { result: 'LOSE' as const };
     }
 
     return {
       entry_id: entry.id,
       result: 'WIN' as const,
-      title: '당첨!!',
       prize: {
-        prize_id: prize?.id ?? null,
         type: prize?.type ?? null,
         name: prize?.name ?? null,
         image_url: prize?.image_url ?? null,
       },
-      winner_info_required: true,
-      next_action: 'INPUT_WINNER_INFO',
     };
   }
 
-  async getHomeStatus() {
+  async getHome() {
     const config = this.configService.get('luckyDraw', { infer: true });
     const today = this.getTodayKst(config.timezone);
-    const drawConfig = await this.database.query<DailyDrawConfig>(
-      'select booth_quota, unis_quota, random_win_rate from daily_draw_config where date = $1',
-      [today],
-    );
+
+    const [drawConfig, counter, reviewResult] = await Promise.all([
+      this.database.query<DailyDrawConfig>(
+        'select booth_quota, unis_quota, random_win_rate from daily_draw_config where date = $1',
+        [today],
+      ),
+      this.database.query<{ guaranteed_count: number }>(
+        'select guaranteed_count from daily_counters where date = $1',
+        [today],
+      ),
+      this.database.query<{ name: string; review: string }>(
+        'select name, review from winner_infos order by created_at desc limit 20',
+        [],
+      ),
+    ]);
+
     const cfg = drawConfig.rows[0] ?? { booth_quota: 90, unis_quota: 10, random_win_rate: 0.2 };
     const totalQuota = cfg.booth_quota + cfg.unis_quota;
-
-    const counter = await this.database.query<{ guaranteed_count: number }>(
-      'select guaranteed_count from daily_counters where date = $1',
-      [today],
-    );
     const usedSlots = counter.rows[0]?.guaranteed_count ?? 0;
     const remainingSlots = Math.max(totalQuota - usedSlots, 0);
     const isOpen = this.isWithinOperatingHours(config.timezone, config.openTime, config.closeTime);
 
     return {
-      daily_winner_limit: totalQuota,
-      used_winner_slots: usedSlots,
-      remaining_winner_slots: remainingSlots,
-      guaranteed_win_available: isOpen && remainingSlots > 0,
-      random_available: isOpen && remainingSlots === 0,
-      random_win_rate_after_limit: cfg.random_win_rate,
       is_open: isOpen,
-      popup_text:
-        remainingSlots > 0
-          ? `100% 당첨 ${remainingSlots}명 남음!`
-          : '선착순 100% 당첨 마감! 지금부터 랜덤 당첨',
-      hero_title: '단돈 990원으로 상품타자!',
-      hero_subtitle: '400개 이상의 상품이 준비되어 있다고..?',
-      speech_bubble_text: '욜영, 치킨, 베라, 떡볶이, 커피.. 대동제 부스 쿠폰까지 준다구?!',
-      cta_text: '응모하기',
-      server_time: this.formatKstTimestamp(new Date()),
+      remaining_winner_slots: remainingSlots,
+      reviews: reviewResult.rows.map((row) => ({
+        masked_name: this.maskName(row.name),
+        review: row.review,
+      })),
     };
+  }
+
+  private maskName(name: string): string {
+    if (name.length <= 1) return name;
+    if (name.length === 2) return name[0] + '*';
+    return name[0] + '*'.repeat(name.length - 2) + name[name.length - 1];
   }
 
   async createWinnerInfo(entryId: string, dto: CreateWinnerInfoDto) {
@@ -219,55 +202,8 @@ export class LuckyDrawService {
     });
 
     void this.sheets.processPendingJobs().catch(() => undefined);
-    return {
-      entry_id: winnerInfo.entry_id,
-      winner_info_id: winnerInfo.id,
-      name: winnerInfo.name,
-      phone: winnerInfo.phone,
-      review: winnerInfo.review,
-      delivery_status: winnerInfo.delivery_status,
-      created_at: winnerInfo.created_at.toISOString(),
-      next_action: 'SHOW_DELIVERY_GUIDE',
-    };
   }
 
-  async getWinnerInfo(entryId: string) {
-    this.assertEntryId(entryId);
-    const entryResult = await this.database.query<EntryRow>(
-      'select * from lucky_draw_entries where id = $1',
-      [entryId],
-    );
-    const entry = entryResult.rows[0];
-    if (!entry) {
-      throw new ApiError('ENTRY_NOT_FOUND', '응모 내역을 찾을 수 없습니다.', HttpStatus.NOT_FOUND);
-    }
-    if (entry.result !== 'WIN') {
-      throw new ApiError('NOT_WINNER', '당첨된 응모가 아닙니다.', HttpStatus.FORBIDDEN);
-    }
-
-    const info = await this.database.query<WinnerInfoRow>(
-      'select * from winner_infos where entry_id = $1',
-      [entryId],
-    );
-    const winnerInfo = info.rows[0];
-    if (!winnerInfo) {
-      return {
-        entry_id: entryId,
-        is_submitted: false,
-        message: '아직 당첨자 정보가 입력되지 않았습니다.',
-      };
-    }
-
-    return {
-      entry_id: entryId,
-      winner_info_id: winnerInfo.id,
-      name: winnerInfo.name,
-      phone: winnerInfo.phone,
-      review: winnerInfo.review,
-      delivery_status: winnerInfo.delivery_status,
-      created_at: winnerInfo.created_at.toISOString(),
-    };
-  }
 
   private async getDailyConfig(client: PoolClient, today: string): Promise<DailyDrawConfig> {
     const result = await client.query<DailyDrawConfig>(
@@ -323,16 +259,16 @@ export class LuckyDrawService {
       await client.query('update prizes set remaining_quantity = remaining_quantity - 1 where id = $1', [prize.id]);
     }
 
+    const config = this.configService.get('luckyDraw', { infer: true });
     const entryResult = await client.query<EntryRow>(
       `insert into lucky_draw_entries
-         (session_id, payment_method, amount, depositor_name, result, prize_id)
-       values ($1, $2, $3, $4, $5, $6)
+         (session_id, payment_method, amount, result, prize_id)
+       values ($1, $2, $3, $4, $5)
        returning *`,
       [
         dto.session_id ?? null,
-        dto.payment_method,
-        dto.amount,
-        dto.depositor_name?.trim() || null,
+        'BANK_TRANSFER',
+        config.amount,
         prize ? 'WIN' : 'LOSE',
         prize?.id ?? null,
       ],
@@ -369,10 +305,8 @@ export class LuckyDrawService {
         entry_id: entry.id,
         session_id: entry.session_id,
         amount: entry.amount,
-        depositor_name: entry.depositor_name,
         result: entry.result,
         prize_id: entry.prize_id,
-        payment_verified: entry.payment_verified,
         created_at: entry.created_at.toISOString(),
       },
     });

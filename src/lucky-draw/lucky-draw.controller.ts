@@ -68,29 +68,14 @@ export class LuckyDrawController {
       oneOf: [
         {
           title: '낙첨',
-          example: {
-            entry_id: 'uuid-here',
-            result: 'LOSE',
-            title: '아쉽지만 다음 기회에..',
-            message: '매일 9시~20시 동안 도전할 수 있어요!',
-            retry_available: true,
-            share_url: '/lucky-draw',
-          },
+          example: { result: 'LOSE' },
         },
         {
           title: '당첨 (부스 쿠폰)',
           example: {
             entry_id: 'uuid-here',
             result: 'WIN',
-            title: '당첨!!',
-            prize: {
-              prize_id: 'uuid-here',
-              type: 'BOOTH',
-              name: '이화검도부 1000원 할인권',
-              image_url: 'https://...',
-            },
-            winner_info_required: true,
-            next_action: 'INPUT_WINNER_INFO',
+            prize: { type: 'BOOTH', name: '이화검도부 1000원 할인권', image_url: 'https://...' },
           },
         },
         {
@@ -98,15 +83,7 @@ export class LuckyDrawController {
           example: {
             entry_id: 'uuid-here',
             result: 'WIN',
-            title: '당첨!!',
-            prize: {
-              prize_id: 'uuid-here',
-              type: 'UNIS',
-              name: '스타벅스 5000원권',
-              image_url: 'https://...',
-            },
-            winner_info_required: true,
-            next_action: 'INPUT_WINNER_INFO',
+            prize: { type: 'UNIS', name: '스타벅스 5000원권', image_url: 'https://...' },
           },
         },
       ],
@@ -137,18 +114,7 @@ export class LuckyDrawController {
   @ApiResponse({
     status: 201,
     description: '당첨자 정보 등록 성공',
-    schema: {
-      example: {
-        entry_id: 'uuid-here',
-        winner_info_id: 'uuid-here',
-        name: '홍길동',
-        phone: '01012345678',
-        review: '재미있었어요!',
-        delivery_status: 'PENDING',
-        created_at: '2026-05-15T10:30:00.000Z',
-        next_action: 'SHOW_DELIVERY_GUIDE',
-      },
-    },
+    schema: { example: {} },
   })
   @ApiResponse({ status: 403, description: '당첨된 응모가 아님', schema: { example: { error: 'NOT_WINNER', message: '당첨된 응모가 아닙니다.' } } })
   @ApiResponse({ status: 404, description: '응모 내역 없음', schema: { example: { error: 'ENTRY_NOT_FOUND', message: '응모 내역을 찾을 수 없습니다.' } } })
@@ -160,40 +126,4 @@ export class LuckyDrawController {
     return this.luckyDrawService.createWinnerInfo(entryId, body);
   }
 
-  @Get(':entryId/winner-info')
-  @ApiOperation({ summary: '당첨자 정보 조회', description: '등록된 당첨자 정보를 조회합니다.' })
-  @ApiParam({ name: 'entryId', description: '응모 UUID' })
-  @ApiResponse({
-    status: 200,
-    description: '당첨자 정보 반환',
-    schema: {
-      oneOf: [
-        {
-          title: '미등록',
-          example: {
-            entry_id: 'uuid-here',
-            is_submitted: false,
-            message: '아직 당첨자 정보가 입력되지 않았습니다.',
-          },
-        },
-        {
-          title: '등록됨',
-          example: {
-            entry_id: 'uuid-here',
-            winner_info_id: 'uuid-here',
-            name: '홍길동',
-            phone: '01012345678',
-            review: '재미있었어요!',
-            delivery_status: 'PENDING',
-            created_at: '2026-05-15T10:30:00.000Z',
-          },
-        },
-      ],
-    },
-  })
-  @ApiResponse({ status: 403, description: '당첨된 응모가 아님', schema: { example: { error: 'NOT_WINNER', message: '당첨된 응모가 아닙니다.' } } })
-  @ApiResponse({ status: 404, description: '응모 내역 없음', schema: { example: { error: 'ENTRY_NOT_FOUND', message: '응모 내역을 찾을 수 없습니다.' } } })
-  getWinnerInfo(@Param('entryId') entryId: string) {
-    return this.luckyDrawService.getWinnerInfo(entryId);
-  }
 }
