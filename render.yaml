@@ -6,7 +6,7 @@ services:
     region: singapore
     buildCommand: npm ci --include=dev && npm run build
     startCommand: npm run start
-    healthCheckPath: /api/lucky-draw/home-status
+    healthCheckPath: /api/lucky-draw/home
     autoDeploy: true
     envVars:
       - key: NODE_ENV
