@@ -35,9 +35,3 @@ services:
         value: "20:00"
       - key: PUBLIC_COUPON_BASE_URL
         sync: false
-      - key: GOOGLE_SHEETS_SPREADSHEET_ID
-        sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_EMAIL
-        sync: false
-      - key: GOOGLE_PRIVATE_KEY
-        sync: false

@@ -6,7 +6,6 @@ import { loadAppConfig } from './config/app.config';
 import { CouponsModule } from './coupons/coupons.module';
 import { DatabaseModule } from './database/database.module';
 import { LuckyDrawModule } from './lucky-draw/lucky-draw.module';
-import { SheetsModule } from './sheets/sheets.module';
 import { SignatureStorageModule } from './storage/signature-storage.module';
 
 @Module({
@@ -22,7 +21,6 @@ import { SignatureStorageModule } from './storage/signature-storage.module';
       },
     ]),
     DatabaseModule,
-    SheetsModule,
     SignatureStorageModule,
     LuckyDrawModule,
     CouponsModule,

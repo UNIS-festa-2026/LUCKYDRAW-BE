@@ -2,7 +2,6 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { ApiError } from '../common/api-error';
 import { isCouponLookupKey } from '../common/validators';
 import { DatabaseService } from '../database/database.service';
-import { SheetsService } from '../sheets/sheets.service';
 import { SignatureStorageService } from '../storage/signature-storage.service';
 import { RedeemCouponDto } from './dto/redeem-coupon.dto';
 
@@ -30,7 +29,6 @@ interface CouponRow {
 export class CouponsService {
   constructor(
     private readonly database: DatabaseService,
-    private readonly sheets: SheetsService,
     private readonly storage: SignatureStorageService,
   ) {}
 
@@ -156,27 +154,8 @@ export class CouponsService {
         [current.id, signaturePath],
       );
 
-      await this.sheets.enqueueJob(client, {
-        targetTab: 'coupons',
-        operation: 'UPDATE',
-        dedupeKey: `coupons-used:${current.id}`,
-        payload: this.toCouponSheetPayload(updated.rows[0]),
-      });
-
-      await this.sheets.enqueueJob(client, {
-        targetTab: 'coupon_redemptions',
-        operation: 'APPEND',
-        dedupeKey: `coupon_redemptions:${current.id}`,
-        payload: {
-          coupon_id: current.id,
-          redeemed_at: updated.rows[0].used_at?.toISOString(),
-        },
-      });
-
       return updated.rows[0];
     });
-
-    void this.sheets.processPendingJobs().catch(() => undefined);
 
     return {
       coupon_id: redeemed.id,
@@ -233,18 +212,4 @@ export class CouponsService {
     }
   }
 
-  private toCouponSheetPayload(coupon: CouponRow) {
-    return {
-      coupon_id: coupon.id,
-      token: coupon.token,
-      prize_id: coupon.prize_id,
-      title: coupon.title,
-      coupon_image_url: coupon.coupon_image_url,
-      status: coupon.status,
-      booth_name: coupon.booth_name,
-      menu_name: coupon.menu_name,
-      valid_until: coupon.valid_until,
-      used_at: coupon.used_at?.toISOString() ?? null,
-    };
-  }
 }

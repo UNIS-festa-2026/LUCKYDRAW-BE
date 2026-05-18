@@ -5,7 +5,6 @@ import { ApiError } from '../common/api-error';
 import { isUuid } from '../common/validators';
 import { AppConfig } from '../config/app.config';
 import { DatabaseService } from '../database/database.service';
-import { SheetsService } from '../sheets/sheets.service';
 import { CreateEntryDto } from './dto/create-entry.dto';
 import { CreateWinnerInfoDto } from './dto/create-winner-info.dto';
 
@@ -47,7 +46,6 @@ interface DailyDrawConfig {
 export class LuckyDrawService {
   constructor(
     private readonly database: DatabaseService,
-    private readonly sheets: SheetsService,
     private readonly configService: ConfigService<AppConfig, true>,
   ) {}
 
@@ -94,8 +92,6 @@ export class LuckyDrawService {
 
       return await this.buildEntryResult(client, dto, prize);
     });
-
-    void this.sheets.processPendingJobs().catch(() => undefined);
 
     const { entry, prize } = txResult;
 
@@ -191,19 +187,10 @@ export class LuckyDrawService {
       );
       const winnerInfo = created.rows[0];
 
-      await this.sheets.enqueueJob(client, {
-        targetTab: 'winner_infos',
-        operation: 'APPEND',
-        dedupeKey: `winner_infos:${winnerInfo.id}`,
-        payload: this.toWinnerInfoSheetPayload(winnerInfo),
-      });
-
       return winnerInfo;
     });
 
-    void this.sheets.processPendingJobs().catch(() => undefined);
   }
-
 
   private async getDailyConfig(client: PoolClient, today: string): Promise<DailyDrawConfig> {
     const result = await client.query<DailyDrawConfig>(
@@ -274,7 +261,6 @@ export class LuckyDrawService {
       ],
     );
     const entry = entryResult.rows[0];
-    await this.enqueueEntrySheetJobs(client, entry, prize);
     return { entry, prize };
   }
 
@@ -296,31 +282,6 @@ export class LuckyDrawService {
     }
   }
 
-  private async enqueueEntrySheetJobs(client: PoolClient, entry: EntryRow, prize: PrizeRow | null) {
-    await this.sheets.enqueueJob(client, {
-      targetTab: 'entries',
-      operation: 'APPEND',
-      dedupeKey: `entries:${entry.id}`,
-      payload: {
-        entry_id: entry.id,
-        session_id: entry.session_id,
-        amount: entry.amount,
-        result: entry.result,
-        prize_id: entry.prize_id,
-        created_at: entry.created_at.toISOString(),
-      },
-    });
-
-    if (prize) {
-      await this.sheets.enqueueJob(client, {
-        targetTab: 'prizes',
-        operation: 'UPDATE',
-        dedupeKey: `prizes:${prize.id}:${entry.id}`,
-        payload: { prize_id: prize.id },
-      });
-    }
-  }
-
   private validateWinnerInfo(dto: CreateWinnerInfoDto) {
     const name = dto.name.trim();
     const review = dto.review.trim();
@@ -337,18 +298,6 @@ export class LuckyDrawService {
     }
 
     return { name, phone, review };
-  }
-
-  private toWinnerInfoSheetPayload(winnerInfo: WinnerInfoRow) {
-    return {
-      winner_info_id: winnerInfo.id,
-      entry_id: winnerInfo.entry_id,
-      name: winnerInfo.name,
-      phone: winnerInfo.phone,
-      review: winnerInfo.review,
-      delivery_status: winnerInfo.delivery_status,
-      created_at: winnerInfo.created_at.toISOString(),
-    };
   }
 
   private isWithinOperatingHours(timezone: string, openTime: string, closeTime: string): boolean {

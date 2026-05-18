@@ -13,11 +13,6 @@ export interface AppConfig {
     closeTime: string;
   };
   publicCouponBaseUrl: string;
-  googleSheets: {
-    spreadsheetId: string;
-    serviceAccountEmail: string;
-    privateKey: string;
-  };
 }
 
 export function loadAppConfig(): AppConfig {
@@ -36,11 +31,6 @@ export function loadAppConfig(): AppConfig {
       closeTime: process.env.LUCKY_DRAW_CLOSE_TIME ?? '20:00',
     },
     publicCouponBaseUrl: process.env.PUBLIC_COUPON_BASE_URL ?? '',
-    googleSheets: {
-      spreadsheetId: required('GOOGLE_SHEETS_SPREADSHEET_ID'),
-      serviceAccountEmail: required('GOOGLE_SERVICE_ACCOUNT_EMAIL'),
-      privateKey: required('GOOGLE_PRIVATE_KEY').replace(/\\n/g, '\n'),
-    },
   };
 }
 
