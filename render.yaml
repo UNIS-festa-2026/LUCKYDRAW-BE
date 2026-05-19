@@ -32,6 +32,6 @@ services:
       - key: LUCKY_DRAW_OPEN_TIME
         value: "09:00"
       - key: LUCKY_DRAW_CLOSE_TIME
-        value: "20:00"
+        value: "23:59"
       - key: PUBLIC_COUPON_BASE_URL
         sync: false
