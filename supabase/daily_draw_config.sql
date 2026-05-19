@@ -7,7 +7,7 @@ insert into daily_draw_config (date, booth_quota, unis_quota, random_win_rate) v
   -- 22일: BOOTH 없음, UNIS 잔여 전량 소진 목적
   -- unis_quota는 UNIS 총량(36) 기준 최대치로 설정
   -- 행사 전날 실제 남은 수량 확인 후 조정 권장
-  ('2026-05-22', 0, 36, 0.0)
+  ('2026-05-22', 0, 41, 0.0)
 on conflict (date) do update set
   booth_quota    = excluded.booth_quota,
   unis_quota     = excluded.unis_quota,
