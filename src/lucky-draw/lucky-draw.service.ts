@@ -114,13 +114,16 @@ export class LuckyDrawService {
     const config = this.configService.get('luckyDraw', { infer: true });
     const today = this.getTodayKst(config.timezone);
 
-    const [drawConfig, counter, reviewResult] = await Promise.all([
+    const [drawConfig, infoCount, reviewResult] = await Promise.all([
       this.database.query<DailyDrawConfig>(
         'select booth_quota, unis_quota, random_win_rate from daily_draw_config where date = $1',
         [today],
       ),
-      this.database.query<{ guaranteed_count: number }>(
-        'select guaranteed_count from daily_counters where date = $1',
+      this.database.query<{ count: number }>(
+        `select count(*) as count
+         from winner_infos wi
+         join lucky_draw_entries e on wi.entry_id = e.id
+         where (e.created_at at time zone 'Asia/Seoul')::date = $1`,
         [today],
       ),
       this.database.query<{ name: string; review: string }>(
@@ -131,7 +134,7 @@ export class LuckyDrawService {
 
     const cfg = drawConfig.rows[0] ?? { booth_quota: 90, unis_quota: 10, random_win_rate: 0.2 };
     const totalQuota = cfg.booth_quota + cfg.unis_quota;
-    const usedSlots = counter.rows[0]?.guaranteed_count ?? 0;
+    const usedSlots = Number(infoCount.rows[0]?.count ?? 0);
     const remainingSlots = Math.max(totalQuota - usedSlots, 0);
     const isOpen = this.isWithinOperatingHours(config.timezone, config.openTime, config.closeTime);
 
