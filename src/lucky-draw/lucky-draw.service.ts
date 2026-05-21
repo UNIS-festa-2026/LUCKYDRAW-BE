@@ -137,7 +137,7 @@ export class LuckyDrawService {
         [today],
       ),
       this.database.query<{ name: string; review: string }>(
-        'select name, review from winner_infos order by created_at desc limit 20',
+        'select name, review from winner_infos where is_hidden is not true order by created_at desc limit 20',
         [],
       ),
     ]);
