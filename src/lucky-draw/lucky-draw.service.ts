@@ -91,6 +91,13 @@ export class LuckyDrawService {
           drawConfig.unis_quota === 0 ? 'BOOTH' :
           undefined;
         prize = await this.selectPrize(client, randomType);
+        // 해당 타입 소진 시 남은 아무 상품으로 fallback
+        if (!prize && randomType !== undefined) {
+          prize = await this.selectPrize(client);
+        }
+        if (!prize) {
+          throw new ApiError('PRIZE_SOLD_OUT', '남은 상품이 없습니다.', HttpStatus.CONFLICT);
+        }
       }
 
       return await this.buildEntryResult(client, dto, prize);
@@ -193,6 +200,13 @@ export class LuckyDrawService {
       );
       const winnerInfo = created.rows[0];
 
+      if (entry.prize_id) {
+        await client.query(
+          'update prizes set remaining_quantity = remaining_quantity - 1 where id = $1',
+          [entry.prize_id],
+        );
+      }
+
       return winnerInfo;
     });
 
@@ -226,14 +240,8 @@ export class LuckyDrawService {
   private async selectPrize(client: PoolClient, type?: 'BOOTH' | 'UNIS'): Promise<PrizeRow | null> {
     const result = await client.query<PrizeRow>(
       type
-        ? `select * from prizes
-           where is_active = true and remaining_quantity > 0 and type = $1
-           order by id
-           for update skip locked`
-        : `select * from prizes
-           where is_active = true and remaining_quantity > 0
-           order by id
-           for update skip locked`,
+        ? `select * from prizes where is_active = true and type = $1 order by id`
+        : `select * from prizes where is_active = true order by id`,
       type ? [type] : [],
     );
     if (!result.rows.length) return null;
@@ -248,9 +256,6 @@ export class LuckyDrawService {
   }
 
   private async buildEntryResult(client: PoolClient, dto: CreateEntryDto, prize: PrizeRow | null) {
-    if (prize) {
-      await client.query('update prizes set remaining_quantity = remaining_quantity - 1 where id = $1', [prize.id]);
-    }
 
     const config = this.configService.get('luckyDraw', { infer: true });
     const entryResult = await client.query<EntryRow>(
